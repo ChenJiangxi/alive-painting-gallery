@@ -40,14 +40,15 @@ function PaintingWithMotion(props: Props) {
   const staticTex = useTexture(safeSrc(work.staticSrc));
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoTex, setVideoTex] = useState<THREE.VideoTexture | null>(null);
+  /** has the video buffered enough to render at least one real frame? */
+  const [videoReady, setVideoReady] = useState(false);
   const isHovered = hoveredIndex === slot.workIndex;
 
   // Create the <video> element EAGERLY on mount with metadata-only preload —
   // a small cost (a few KB per work) that buys two things: (1) the element
   // exists by the time the first onPointerOver fires, so unmute can happen
-  // inside the user gesture context (instead of waiting for a reactive
-  // useEffect to create it after the gesture is gone), and (2) on second
-  // and later hovers there's no jitter from re-creation.
+  // inside the user gesture context, and (2) on second and later hovers
+  // there's no jitter from re-creation.
   useEffect(() => {
     const v = document.createElement('video');
     v.src = safeSrc(work.motionSrc!);
@@ -57,6 +58,10 @@ function PaintingWithMotion(props: Props) {
     v.preload = 'metadata';
     v.style.cssText =
       'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+    const markReady = () => setVideoReady(true);
+    // Either of these guarantees we have decoded at least the first frame.
+    v.addEventListener('loadeddata', markReady);
+    v.addEventListener('playing', markReady);
     document.body.appendChild(v);
     videoRef.current = v;
     const tex = new THREE.VideoTexture(v);
@@ -65,6 +70,8 @@ function PaintingWithMotion(props: Props) {
     tex.magFilter = THREE.LinearFilter;
     setVideoTex(tex);
     return () => {
+      v.removeEventListener('loadeddata', markReady);
+      v.removeEventListener('playing', markReady);
       v.pause();
       v.remove();
       tex.dispose();
@@ -81,7 +88,11 @@ function PaintingWithMotion(props: Props) {
     else v.pause();
   }, [isHovered]);
 
-  const tex = isHovered && videoTex ? videoTex : staticTex;
+  // Only swap to the video texture once we know it has real frames — otherwise
+  // VideoTexture renders solid black until the decoder catches up, which the
+  // viewer reads as "the painting went dark on hover" rather than "the painting
+  // started breathing".
+  const tex = isHovered && videoTex && videoReady ? videoTex : staticTex;
   return (
     <Frame
       tex={tex}
