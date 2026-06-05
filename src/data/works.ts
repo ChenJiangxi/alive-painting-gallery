@@ -22,6 +22,15 @@ export type Work = {
   staticSrc: string;
   /** Motion video filename inside /works/picasso-in-motion/; null = static only */
   motionSrc: string | null;
+  /**
+   * How big the motion video appears WITHIN the static painting on hover, as a
+   * fraction of the static plane (0–1, default 0.78). The AI videos are all
+   * 834×1112 with a tighter crop than the source webp, so the figure is shown
+   * larger in the video than in the static. Reducing this fraction shrinks the
+   * video overlay so the figure's apparent size matches the static painting.
+   * Tune per work by eye if the default doesn't quite match.
+   */
+  videoScale?: number;
   /** Optional curator note */
   note?: string;
 };
@@ -36,6 +45,7 @@ export const works: Work[] = [
     year: 1937,
     staticSrc: `${ROOT}/哭泣的女子.webp`,
     motionSrc: `${ROOT}/哭泣的女人_一致性优化.mp4`,
+    videoScale: 0.7,
   },
   {
     id: 'woman-with-hat-gaze',
@@ -44,6 +54,7 @@ export const works: Work[] = [
     year: null,
     staticSrc: `${ROOT}/戴帽的女人.jpeg`,
     motionSrc: `${ROOT}/戴帽女人的凝视.mp4`,
+    videoScale: 0.92,
   },
   {
     id: 'woman-with-hat-2',
@@ -68,6 +79,7 @@ export const works: Work[] = [
     year: null,
     staticSrc: `${ROOT}/小提琴.webp`,
     motionSrc: `${ROOT}/分析立体派小提琴演奏.mp4`,
+    videoScale: 0.66,
   },
   {
     id: 'man-with-straw-hat-icecream',

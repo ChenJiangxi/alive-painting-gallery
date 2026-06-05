@@ -5,10 +5,10 @@ import * as THREE from 'three';
 import { safeSrc, type Work } from '../data/works';
 import type { Slot } from './positions';
 
-/** Bounding box on the wall — paintings scale to fit inside this without
- *  cropping. Tall paintings hit MAX_H first; wide ones hit MAX_W first. */
 const MAX_H = 1.55;
 const MAX_W = 1.8;
+
+const DEFAULT_VIDEO_SCALE = 0.78;
 
 type Props = {
   work: Work;
@@ -28,19 +28,14 @@ export function Painting(props: Props) {
 
 function PaintingStill(props: Props) {
   const staticTex = useTexture(safeSrc(props.work.staticSrc));
-  return <Frame tex={staticTex} {...props} />;
+  return <Frame staticTex={staticTex} {...props} />;
 }
 
 /**
- * Motion painting — manually managed video element so we control:
- *  - same-origin (no crossOrigin, so WebGL never taints the texture),
- *  - DOM-attached (some browsers refuse to decode detached videos),
- *  - lazy creation on first hover (10 videos × ~4 MB would blow first paint),
- *  - persistent across hovers (don't tear down on leave; just pause).
- *
- * Plane dimensions are ALWAYS derived from the still image, so the painting
- * occupies its "original" size on the wall. The video plays into the same
- * plane on hover and may be slightly stretched if its aspect differs.
+ * Motion painting. The static image stays at original-painting size on the
+ * wall; the AI video — which is consistently a tighter crop of the painting —
+ * is rendered as a smaller inset on top, fading in on hover. videoScale
+ * controls how big the video appears relative to the static.
  */
 function PaintingWithMotion(props: Props) {
   const { work, slot, hoveredIndex } = props;
@@ -66,50 +61,18 @@ function PaintingWithMotion(props: Props) {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
-
-    // CSS object-fit:cover equivalent. The plane is sized for the static
-    // image; if the video has a different aspect, crop it (don't stretch).
-    // Compute on metadata load, since videoWidth/Height aren't available
-    // until then.
-    const fitCover = () => {
-      const sImg = staticTex.image as HTMLImageElement | undefined;
-      const sw = sImg?.width ?? 0;
-      const sh = sImg?.height ?? 0;
-      const vw = v.videoWidth;
-      const vh = v.videoHeight;
-      if (!sw || !sh || !vw || !vh) return;
-      const sa = sw / sh;
-      const va = vw / vh;
-      if (va < sa) {
-        // video is taller than plane — crop top + bottom
-        tex.repeat.set(1, va / sa);
-        tex.offset.set(0, (1 - va / sa) / 2);
-      } else if (va > sa) {
-        // video is wider than plane — crop sides
-        tex.repeat.set(sa / va, 1);
-        tex.offset.set((1 - sa / va) / 2, 0);
-      } else {
-        tex.repeat.set(1, 1);
-        tex.offset.set(0, 0);
-      }
-    };
-    if (v.videoWidth) fitCover();
-    else v.addEventListener('loadedmetadata', fitCover);
-
     setVideoTex(tex);
     v.play().catch(() => { /* will retry on next hover */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHovered]);
 
-  // Play/pause based on hover; do not destroy.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (isHovered) v.play().catch(() => { /* still blocked */ });
+    if (isHovered) v.play().catch(() => {});
     else v.pause();
   }, [isHovered]);
 
-  // One-shot dispose on unmount.
   useEffect(() => {
     return () => {
       const v = videoRef.current;
@@ -122,16 +85,16 @@ function PaintingWithMotion(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const tex = isHovered && videoTex ? videoTex : staticTex;
   return (
     <Frame
-      tex={tex}
-      sizingTex={staticTex}
+      staticTex={staticTex}
+      videoTex={videoTex}
+      videoScale={work.videoScale ?? DEFAULT_VIDEO_SCALE}
       onGestureEnter={() => {
         const v = videoRef.current;
         if (v) {
           v.muted = false;
-          v.play().catch(() => { /* will retry on next gesture */ });
+          v.play().catch(() => {});
         }
       }}
       onGestureLeave={() => {
@@ -144,15 +107,17 @@ function PaintingWithMotion(props: Props) {
 }
 
 type FrameProps = Props & {
-  tex: THREE.Texture;
-  sizingTex?: THREE.Texture;
+  staticTex: THREE.Texture;
+  videoTex?: THREE.VideoTexture | null;
+  videoScale?: number;
   onGestureEnter?: () => void;
   onGestureLeave?: () => void;
 };
 
 function Frame({
-  tex,
-  sizingTex,
+  staticTex,
+  videoTex,
+  videoScale = DEFAULT_VIDEO_SCALE,
   slot,
   onSelect,
   hoveredIndex,
@@ -163,16 +128,13 @@ function Frame({
   const isHovered = hoveredIndex === slot.workIndex;
   const group = useRef<THREE.Group>(null);
   const frameMat = useRef<THREE.MeshStandardMaterial>(null);
+  const videoMat = useRef<THREE.MeshBasicMaterial>(null);
 
-  // Plane geometry is locked to the still image's aspect, fitted inside the
-  // bounding box. Whichever dimension hits its cap first becomes the limiting
-  // factor; the other shrinks to preserve aspect — never cropped, never
-  // stretched. The video, when bound, is rendered in the same plane.
-  const sourceTex = sizingTex ?? tex;
+  // Plane size derived from the still image; never changes when video swaps in.
   const [w, h] = useMemo(() => {
-    const img = (sourceTex.image as HTMLImageElement | HTMLVideoElement | undefined) || undefined;
-    const iw = img ? ('videoWidth' in img ? img.videoWidth : img.width) : 0;
-    const ih = img ? ('videoHeight' in img ? img.videoHeight : img.height) : 0;
+    const img = staticTex.image as HTMLImageElement | undefined;
+    const iw = img?.width ?? 0;
+    const ih = img?.height ?? 0;
     const aspect = iw && ih ? iw / ih : 0.72;
     let height = MAX_H;
     let width = height * aspect;
@@ -181,8 +143,48 @@ function Frame({
       height = width / aspect;
     }
     return [width, height];
-  }, [sourceTex]);
+  }, [staticTex]);
 
+  // Inset video plane (smaller than static). Match its aspect to the static
+  // so the figure inside renders without distortion; UV cover-crop the video
+  // to fit. Center-on-static.
+  const vW = w * videoScale;
+  const vH = h * videoScale;
+
+  // UV cover-crop the video to the inset plane's aspect (same as static aspect).
+  useEffect(() => {
+    if (!videoTex) return;
+    const apply = () => {
+      const vid = videoTex.image as HTMLVideoElement | undefined;
+      const sImg = staticTex.image as HTMLImageElement | undefined;
+      if (!vid || !sImg || !vid.videoWidth || !sImg.width) return;
+      const planeAspect = sImg.width / sImg.height;
+      const videoAspect = vid.videoWidth / vid.videoHeight;
+      if (videoAspect < planeAspect) {
+        // video is taller than plane — crop top + bottom
+        videoTex.repeat.set(1, videoAspect / planeAspect);
+        videoTex.offset.set(0, (1 - videoAspect / planeAspect) / 2);
+      } else if (videoAspect > planeAspect) {
+        // video is wider than plane — crop sides
+        videoTex.repeat.set(planeAspect / videoAspect, 1);
+        videoTex.offset.set((1 - planeAspect / videoAspect) / 2, 0);
+      } else {
+        videoTex.repeat.set(1, 1);
+        videoTex.offset.set(0, 0);
+      }
+      videoTex.needsUpdate = true;
+    };
+    const vid = videoTex.image as HTMLVideoElement;
+    if (vid.videoWidth) apply();
+    else vid.addEventListener('loadedmetadata', apply, { once: true });
+    return () => {
+      try {
+        vid.removeEventListener('loadedmetadata', apply);
+      } catch { /* element may be gone */ }
+    };
+  }, [videoTex, staticTex]);
+
+  // Animations: lift painting + warm-glow frame + fade video overlay in/out
   useFrame((_, dt) => {
     if (!group.current) return;
     const target = isHovered ? 0.05 : 0;
@@ -209,6 +211,10 @@ function Frame({
         4,
         dt,
       );
+    }
+    if (videoMat.current) {
+      const o = isHovered && videoTex ? 1 : 0;
+      videoMat.current.opacity = THREE.MathUtils.damp(videoMat.current.opacity, o, 5, dt);
     }
   });
 
@@ -237,11 +243,27 @@ function Frame({
         onSelect(slot.workIndex);
       }}
     >
+      {/* static — always rendered; the painting on the wall */}
       <mesh position={[0, 0, frameDepth + 0.001]}>
         <planeGeometry args={[w, h]} />
-        <meshStandardMaterial map={tex} toneMapped={false} />
+        <meshStandardMaterial map={staticTex} toneMapped={false} />
       </mesh>
 
+      {/* video overlay — smaller, centered, fades in on hover */}
+      {videoTex && (
+        <mesh position={[0, 0, frameDepth + 0.004]}>
+          <planeGeometry args={[vW, vH]} />
+          <meshBasicMaterial
+            ref={videoMat}
+            map={videoTex}
+            toneMapped={false}
+            transparent
+            opacity={0}
+          />
+        </mesh>
+      )}
+
+      {/* frame strips */}
       <mesh position={[0, h / 2 + frameThickness / 2, frameDepth / 2]}>
         <boxGeometry args={[w + frameThickness * 2, frameThickness, frameDepth]} />
         <meshStandardMaterial
