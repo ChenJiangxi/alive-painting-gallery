@@ -12,8 +12,8 @@ type Props = {
 };
 
 const CENTER = new THREE.Vector3(0, ROTUNDA_GEOM.eyeHeight, 0);
-/** auto-rotate angular speed at rest, in rad/sec (~40s per full revolution) */
-const AUTO_ROTATE_RPS = (Math.PI * 2) / 40;
+/** auto-rotate angular speed at rest, in rad/sec (~90s per full revolution) */
+const AUTO_ROTATE_RPS = (Math.PI * 2) / 90;
 /** how much yaw the user can scrub by dragging across the whole canvas */
 const DRAG_YAW_PER_PX = 0.0055;
 

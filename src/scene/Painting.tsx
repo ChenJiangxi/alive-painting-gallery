@@ -1,11 +1,14 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { useTexture, useVideoTexture } from '@react-three/drei';
+import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { safeSrc, type Work } from '../data/works';
 import type { Slot } from './positions';
 
-const PAINTING_HEIGHT = 1.4; // 1.4 m tall, width from aspect
+/** Bounding box on the wall — paintings scale to fit inside this without
+ *  cropping. Tall paintings hit MAX_H first; wide ones hit MAX_W first. */
+const MAX_H = 1.55;
+const MAX_W = 1.8;
 
 type Props = {
   work: Work;
@@ -15,16 +18,6 @@ type Props = {
   setHovered: (i: number | null) => void;
 };
 
-/**
- * One painting on the rotunda wall.
- *
- * Texture pipeline:
- *  - The still image always loads (via useTexture).
- *  - If the work has motion, a VideoTexture is created eagerly via
- *    @react-three/drei's useVideoTexture and is already playing in the
- *    background (muted, looped). Hovering simply swaps which texture is
- *    bound to the painting's material — no create/destroy, no race.
- */
 export function Painting(props: Props) {
   const { work } = props;
   if (work.motionSrcs.length > 0) {
@@ -33,48 +26,87 @@ export function Painting(props: Props) {
   return <PaintingStill {...props} />;
 }
 
-function PaintingStill({ work, slot, onSelect, hoveredIndex, setHovered }: Props) {
-  const staticTex = useTexture(safeSrc(work.staticSrc));
-  return (
-    <Frame
-      tex={staticTex}
-      work={work}
-      slot={slot}
-      onSelect={onSelect}
-      hoveredIndex={hoveredIndex}
-      setHovered={setHovered}
-      forceStill
-    />
-  );
-}
-
-function PaintingWithMotion({ work, slot, onSelect, hoveredIndex, setHovered }: Props) {
-  const staticTex = useTexture(safeSrc(work.staticSrc));
-  const videoTex = useVideoTexture(safeSrc(work.motionSrcs[0]), {
-    muted: true,
-    loop: true,
-    start: true,
-    playsInline: true,
-    crossOrigin: 'anonymous',
-  }) as THREE.VideoTexture;
-
-  const isHovered = hoveredIndex === slot.workIndex;
-  return (
-    <Frame
-      tex={isHovered ? videoTex : staticTex}
-      work={work}
-      slot={slot}
-      onSelect={onSelect}
-      hoveredIndex={hoveredIndex}
-      setHovered={setHovered}
-    />
-  );
+function PaintingStill(props: Props) {
+  const staticTex = useTexture(safeSrc(props.work.staticSrc));
+  return <Frame tex={staticTex} {...props} />;
 }
 
 type FrameProps = Props & {
   tex: THREE.Texture;
-  forceStill?: boolean;
+  /** synchronous gesture-context callbacks for things like un/muting media */
+  onGestureEnter?: () => void;
+  onGestureLeave?: () => void;
 };
+
+/**
+ * Motion painting — manually managed video element so we control:
+ *  - same-origin (no crossOrigin, so WebGL never taints the texture),
+ *  - DOM-attached (some browsers refuse to decode detached videos),
+ *  - eager preload + muted autoplay so the first frame is always ready,
+ *  - hover unmutes (the hover event is a valid user gesture), leave mutes.
+ */
+function PaintingWithMotion(props: Props) {
+  const { work, slot, hoveredIndex } = props;
+  const staticTex = useTexture(safeSrc(work.staticSrc));
+  const [videoTex, setVideoTex] = useState<THREE.VideoTexture | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const isHovered = hoveredIndex === slot.workIndex;
+
+  useEffect(() => {
+    const v = document.createElement('video');
+    v.src = safeSrc(work.motionSrcs[0]);
+    v.muted = true;
+    v.loop = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    // hide off-screen but keep in DOM so the browser actually decodes frames
+    v.style.cssText =
+      'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(v);
+    videoRef.current = v;
+    const tex = new THREE.VideoTexture(v);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    setVideoTex(tex);
+    v.play().catch(() => { /* will retry on hover */ });
+    return () => {
+      v.pause();
+      v.remove();
+      tex.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hover ensures playback (in case autoplay was blocked at mount).
+  // We intentionally do NOT unmute here — unmuting in a reactive effect is
+  // not a "user activation" so browsers will pause the video. Unmute is
+  // handled in onPointerOver directly inside Frame's gesture context below.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (isHovered) v.play().catch(() => { /* still blocked */ });
+  }, [isHovered]);
+
+  const tex = isHovered && videoTex ? videoTex : staticTex;
+  return (
+    <Frame
+      tex={tex}
+      onGestureEnter={() => {
+        const v = videoRef.current;
+        if (v) {
+          v.muted = false;
+          v.play().catch(() => { /* will retry on next gesture */ });
+        }
+      }}
+      onGestureLeave={() => {
+        const v = videoRef.current;
+        if (v) v.muted = true;
+      }}
+      {...props}
+    />
+  );
+}
 
 function Frame({
   tex,
@@ -82,42 +114,45 @@ function Frame({
   onSelect,
   hoveredIndex,
   setHovered,
-  forceStill = false,
+  onGestureEnter,
+  onGestureLeave,
 }: FrameProps) {
   const isHovered = hoveredIndex === slot.workIndex;
   const group = useRef<THREE.Group>(null);
   const frameMat = useRef<THREE.MeshStandardMaterial>(null);
 
-  // Width from texture aspect (falls back until image is decoded).
+  // Compute width × height that fits MAX_W × MAX_H without cropping or
+  // distorting the painting. Whichever dimension hits its cap first
+  // becomes the limiting one and the other shrinks to preserve aspect.
   const [w, h] = useMemo(() => {
     const img = (tex.image as HTMLImageElement | HTMLVideoElement | undefined) || undefined;
     const iw = img ? ('videoWidth' in img ? img.videoWidth : img.width) : 0;
     const ih = img ? ('videoHeight' in img ? img.videoHeight : img.height) : 0;
     const aspect = iw && ih ? iw / ih : 0.72;
-    return [PAINTING_HEIGHT * aspect, PAINTING_HEIGHT];
+    // Start from MAX_H, scale down if width would exceed MAX_W.
+    let height = MAX_H;
+    let width = height * aspect;
+    if (width > MAX_W) {
+      width = MAX_W;
+      height = width / aspect;
+    }
+    return [width, height];
   }, [tex]);
 
-  // Subtle hover lift + warm glow on the frame.
   useFrame((_, dt) => {
     if (!group.current) return;
-    const target = isHovered && !forceStill ? 0.05 : 0;
-    // The inward normal at this slot points from position toward origin.
-    // Multiply by -1 to nudge outward (away from origin); inward looks weird.
-    // Actually we want to push the painting INTO the room a bit on hover,
-    // which means from the wall toward the origin → -position / r * target.
+    const target = isHovered ? 0.05 : 0;
     const inwardX = -slot.position[0] / Math.hypot(slot.position[0], slot.position[2]);
     const inwardZ = -slot.position[2] / Math.hypot(slot.position[0], slot.position[2]);
-    const homeX = slot.position[0];
-    const homeZ = slot.position[2];
     group.current.position.x = THREE.MathUtils.damp(
       group.current.position.x,
-      homeX + inwardX * target,
+      slot.position[0] + inwardX * target,
       6,
       dt,
     );
     group.current.position.z = THREE.MathUtils.damp(
       group.current.position.z,
-      homeZ + inwardZ * target,
+      slot.position[2] + inwardZ * target,
       6,
       dt,
     );
@@ -145,24 +180,24 @@ function Frame({
         e.stopPropagation();
         document.body.style.cursor = 'pointer';
         setHovered(slot.workIndex);
+        onGestureEnter?.();
       }}
       onPointerOut={(e) => {
         e.stopPropagation();
         document.body.style.cursor = '';
         if (hoveredIndex === slot.workIndex) setHovered(null);
+        onGestureLeave?.();
       }}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(slot.workIndex);
       }}
     >
-      {/* painting plane */}
       <mesh position={[0, 0, frameDepth + 0.001]}>
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial map={tex} toneMapped={false} />
       </mesh>
 
-      {/* frame strips — top / bottom / left / right */}
       <mesh position={[0, h / 2 + frameThickness / 2, frameDepth / 2]}>
         <boxGeometry args={[w + frameThickness * 2, frameThickness, frameDepth]} />
         <meshStandardMaterial
