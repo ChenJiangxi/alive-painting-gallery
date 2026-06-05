@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useFrame, useLoader } from '@react-three/fiber';
+import { useMemo, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { useTexture, useVideoTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { safeSrc, type Work } from '../data/works';
 import type { Slot } from './positions';
 
-const PAINTING_HEIGHT = 1.4; // 1.4 meters tall, width derived from aspect
+const PAINTING_HEIGHT = 1.4; // 1.4 m tall, width from aspect
 
 type Props = {
   work: Work;
@@ -14,102 +15,124 @@ type Props = {
   setHovered: (i: number | null) => void;
 };
 
-export function Painting({ work, slot, onSelect, hoveredIndex, setHovered }: Props) {
-  const staticTex = useLoader(THREE.TextureLoader, safeSrc(work.staticSrc));
-  const hasMotion = work.motionSrcs.length > 0;
+/**
+ * One painting on the rotunda wall.
+ *
+ * Texture pipeline:
+ *  - The still image always loads (via useTexture).
+ *  - If the work has motion, a VideoTexture is created eagerly via
+ *    @react-three/drei's useVideoTexture and is already playing in the
+ *    background (muted, looped). Hovering simply swaps which texture is
+ *    bound to the painting's material — no create/destroy, no race.
+ */
+export function Painting(props: Props) {
+  const { work } = props;
+  if (work.motionSrcs.length > 0) {
+    return <PaintingWithMotion {...props} />;
+  }
+  return <PaintingStill {...props} />;
+}
+
+function PaintingStill({ work, slot, onSelect, hoveredIndex, setHovered }: Props) {
+  const staticTex = useTexture(safeSrc(work.staticSrc));
+  return (
+    <Frame
+      tex={staticTex}
+      work={work}
+      slot={slot}
+      onSelect={onSelect}
+      hoveredIndex={hoveredIndex}
+      setHovered={setHovered}
+      forceStill
+    />
+  );
+}
+
+function PaintingWithMotion({ work, slot, onSelect, hoveredIndex, setHovered }: Props) {
+  const staticTex = useTexture(safeSrc(work.staticSrc));
+  const videoTex = useVideoTexture(safeSrc(work.motionSrcs[0]), {
+    muted: true,
+    loop: true,
+    start: true,
+    playsInline: true,
+    crossOrigin: 'anonymous',
+  }) as THREE.VideoTexture;
+
+  const isHovered = hoveredIndex === slot.workIndex;
+  return (
+    <Frame
+      tex={isHovered ? videoTex : staticTex}
+      work={work}
+      slot={slot}
+      onSelect={onSelect}
+      hoveredIndex={hoveredIndex}
+      setHovered={setHovered}
+    />
+  );
+}
+
+type FrameProps = Props & {
+  tex: THREE.Texture;
+  forceStill?: boolean;
+};
+
+function Frame({
+  tex,
+  slot,
+  onSelect,
+  hoveredIndex,
+  setHovered,
+  forceStill = false,
+}: FrameProps) {
   const isHovered = hoveredIndex === slot.workIndex;
   const group = useRef<THREE.Group>(null);
   const frameMat = useRef<THREE.MeshStandardMaterial>(null);
 
-  // Compute width from aspect when texture loads.
+  // Width from texture aspect (falls back until image is decoded).
   const [w, h] = useMemo(() => {
-    const img = staticTex.image as HTMLImageElement | undefined;
-    const aspect = img && img.width && img.height ? img.width / img.height : 0.72;
+    const img = (tex.image as HTMLImageElement | HTMLVideoElement | undefined) || undefined;
+    const iw = img ? ('videoWidth' in img ? img.videoWidth : img.width) : 0;
+    const ih = img ? ('videoHeight' in img ? img.videoHeight : img.height) : 0;
+    const aspect = iw && ih ? iw / ih : 0.72;
     return [PAINTING_HEIGHT * aspect, PAINTING_HEIGHT];
-  }, [staticTex]);
+  }, [tex]);
 
-  // Lazy video texture — created on first hover, then persisted for the
-  // lifetime of the painting so subsequent hovers just play() again. The
-  // earlier shape destroyed the video in the effect cleanup, which made
-  // every hover after the first a no-op.
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const texRef = useRef<THREE.VideoTexture | null>(null);
-  const [videoReady, setVideoReady] = useState(false);
-  // bumped to force re-render so activeTex picks up texRef once it's created
-  const [, setTick] = useState(0);
-
-  // Create video lazily on first hover. Once created, it lives until unmount.
-  useEffect(() => {
-    if (!hasMotion || !isHovered || videoRef.current) return;
-    const v = document.createElement('video');
-    v.src = safeSrc(work.motionSrcs[0]);
-    v.crossOrigin = 'anonymous';
-    v.loop = true;
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = 'auto';
-    const onReady = () => setVideoReady(true);
-    v.addEventListener('playing', onReady);
-    v.addEventListener('loadeddata', onReady);
-    videoRef.current = v;
-    const tex = new THREE.VideoTexture(v);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    texRef.current = tex;
-    v.play().catch(() => { /* autoplay blocked? next hover will retry below */ });
-    setTick((n) => n + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHovered]);
-
-  // Play/pause based on hover state — independent of the create-once effect.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (isHovered) {
-      v.play().catch(() => { /* still blocked — show static */ });
-    } else {
-      v.pause();
-    }
-  }, [isHovered]);
-
-  // Dispose on real unmount only.
-  useEffect(() => {
-    return () => {
-      const v = videoRef.current;
-      const tex = texRef.current;
-      if (v) {
-        v.pause();
-        v.removeAttribute('src');
-        v.load();
-      }
-      if (tex) tex.dispose();
-    };
-  }, []);
-
-  // Subtle hover lift — painting pushes slightly out from the wall + a soft glow rim.
+  // Subtle hover lift + warm glow on the frame.
   useFrame((_, dt) => {
     if (!group.current) return;
-    const target = isHovered ? 0.06 : 0;
-    const dir = slot.wall === 'left' ? 1 : -1;
-    const cur = group.current.position.x;
-    const home = slot.position[0];
-    const next = THREE.MathUtils.damp(cur, home + dir * target, 6, dt);
-    group.current.position.x = next;
+    const target = isHovered && !forceStill ? 0.05 : 0;
+    // The inward normal at this slot points from position toward origin.
+    // Multiply by -1 to nudge outward (away from origin); inward looks weird.
+    // Actually we want to push the painting INTO the room a bit on hover,
+    // which means from the wall toward the origin → -position / r * target.
+    const inwardX = -slot.position[0] / Math.hypot(slot.position[0], slot.position[2]);
+    const inwardZ = -slot.position[2] / Math.hypot(slot.position[0], slot.position[2]);
+    const homeX = slot.position[0];
+    const homeZ = slot.position[2];
+    group.current.position.x = THREE.MathUtils.damp(
+      group.current.position.x,
+      homeX + inwardX * target,
+      6,
+      dt,
+    );
+    group.current.position.z = THREE.MathUtils.damp(
+      group.current.position.z,
+      homeZ + inwardZ * target,
+      6,
+      dt,
+    );
 
     if (frameMat.current) {
-      const targetIntensity = isHovered ? 0.35 : 0;
+      const intensity = isHovered ? 0.32 : 0;
       frameMat.current.emissiveIntensity = THREE.MathUtils.damp(
         frameMat.current.emissiveIntensity,
-        targetIntensity,
+        intensity,
         4,
         dt,
       );
     }
   });
 
-  // Pick the active texture; only swap to video once it actually has frames.
-  const activeTex = isHovered && texRef.current && videoReady ? texRef.current : staticTex;
-
-  // Tiny frame around the painting (subtle warm-brown matte)
   const frameThickness = 0.015;
   const frameDepth = 0.02;
 
@@ -133,13 +156,13 @@ export function Painting({ work, slot, onSelect, hoveredIndex, setHovered }: Pro
         onSelect(slot.workIndex);
       }}
     >
-      {/* picture itself — plane pushed just off the wall */}
+      {/* painting plane */}
       <mesh position={[0, 0, frameDepth + 0.001]}>
         <planeGeometry args={[w, h]} />
-        <meshStandardMaterial map={activeTex} toneMapped={false} />
+        <meshStandardMaterial map={tex} toneMapped={false} />
       </mesh>
 
-      {/* thin frame: 4 strips around the plane, slightly out from the wall */}
+      {/* frame strips — top / bottom / left / right */}
       <mesh position={[0, h / 2 + frameThickness / 2, frameDepth / 2]}>
         <boxGeometry args={[w + frameThickness * 2, frameThickness, frameDepth]} />
         <meshStandardMaterial

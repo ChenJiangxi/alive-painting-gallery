@@ -1,14 +1,9 @@
 /**
- * Painting placement in the hallway.
+ * Painting placement on a circular rotunda wall.
  *
- * Coordinate frame:
- *   +X = right wall · -X = left wall
- *   +Y = up
- *   +Z = forward into the hallway (away from the entrance camera)
- *
- * The camera starts at roughly (0, 1.6, -8) looking toward +Z. Paintings line
- * the two side walls, eye-height centered. Order matches works[] so the first
- * works (motion ones) sit nearest to the entrance.
+ * The viewer stands at the origin; paintings line a cylindrical wall at
+ * radius `WALL_RADIUS`, eye-height centered. Each painting faces the
+ * center of the room (its plane normal points inward toward origin).
  */
 
 export type Slot = {
@@ -16,44 +11,48 @@ export type Slot = {
   workIndex: number;
   /** world position of the painting's center */
   position: [number, number, number];
-  /** rotation around Y in radians — paintings face into the hallway */
+  /** rotation around Y so the painting's front face points to the origin */
   rotationY: number;
-  /** which wall it lives on (for grouping / debugging) */
-  wall: 'left' | 'right';
+  /** angle around the rotunda (radians, 0 = straight ahead +Z, increases CCW) */
+  angle: number;
 };
 
-const HALL_WIDTH = 6;      // x: -3 .. +3
-const WALL_X = HALL_WIDTH / 2;
+const WALL_RADIUS = 5.2;
 const PAINTING_Y = 1.7;
-const SPACING_Z = 3.2;
-const START_Z = -4;        // first painting is this many units in front of camera
-const Y_JITTER = 0.18;     // small vertical offset variety so it's not a perfect line
+const Y_JITTER = 0.18;
 
-/** Build slots: alternate left / right, walking from the entrance forward. */
+/** Build slots equally spaced around the circle, starting at +Z (in front
+ *  of the viewer's initial gaze) and going clockwise as i increases. */
 export function makeSlots(count: number): Slot[] {
   const slots: Slot[] = [];
   for (let i = 0; i < count; i++) {
-    const isLeft = i % 2 === 0;
-    const row = Math.floor(i / 2);
-    const z = START_Z + row * SPACING_Z;
-    // tiny vertical jitter, deterministic from i so re-renders stay stable
+    const angle = (i / count) * Math.PI * 2;
+    const x = Math.sin(angle) * WALL_RADIUS;
+    const z = Math.cos(angle) * WALL_RADIUS;
+
+    // Default plane normal is +Z. Rotating by angle around Y sends +Z to
+    // (sin angle, 0, cos angle), which is the OUTWARD direction at that
+    // wall position. We want the INWARD direction (back toward origin),
+    // so add π.
+    const rotationY = angle + Math.PI;
+
+    // Deterministic tiny vertical offset so the line of paintings isn't
+    // a perfectly even crown.
     const jitter = (((i * 9301 + 49297) % 233280) / 233280 - 0.5) * 2 * Y_JITTER;
+
     slots.push({
       workIndex: i,
-      position: [isLeft ? -WALL_X + 0.05 : WALL_X - 0.05, PAINTING_Y + jitter, z],
-      rotationY: isLeft ? Math.PI / 2 : -Math.PI / 2,
-      wall: isLeft ? 'left' : 'right',
+      position: [x, PAINTING_Y + jitter, z],
+      rotationY,
+      angle,
     });
   }
   return slots;
 }
 
-export const HALL_GEOM = {
-  width: HALL_WIDTH,
-  length: 26,   // overall hall depth
-  height: 4.2,
-  /** camera entrance position */
-  entrance: [0, 1.6, -8] as [number, number, number],
-  /** what the entrance camera looks toward */
-  entranceLookAt: [0, 1.6, 6] as [number, number, number],
+export const ROTUNDA_GEOM = {
+  wallRadius: WALL_RADIUS,
+  wallHeight: 4.4,
+  floorRadius: WALL_RADIUS + 0.3,    // floor extends slightly beyond wall base
+  eyeHeight: 1.6,
 };
