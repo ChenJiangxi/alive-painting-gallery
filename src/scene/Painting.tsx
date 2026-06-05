@@ -36,6 +36,9 @@ type FrameProps = Props & {
   /** synchronous gesture-context callbacks for things like un/muting media */
   onGestureEnter?: () => void;
   onGestureLeave?: () => void;
+  /** if set, lock plane geometry to this image regardless of which tex is
+   *  currently bound. Prevents the plane from resizing when video swaps in. */
+  sizingTex?: THREE.Texture;
 };
 
 /**
@@ -89,9 +92,14 @@ function PaintingWithMotion(props: Props) {
   }, [isHovered]);
 
   const tex = isHovered && videoTex ? videoTex : staticTex;
+  // Lock the plane to the VIDEO's aspect when one is available — that's
+  // what the user considers "the original size". The static is shown at
+  // the same plane and may be slightly stretched, but the painting never
+  // jumps size when hovered.
   return (
     <Frame
       tex={tex}
+      sizingTex={videoTex ?? staticTex}
       onGestureEnter={() => {
         const v = videoRef.current;
         if (v) {
@@ -110,6 +118,7 @@ function PaintingWithMotion(props: Props) {
 
 function Frame({
   tex,
+  sizingTex,
   slot,
   onSelect,
   hoveredIndex,
@@ -122,14 +131,15 @@ function Frame({
   const frameMat = useRef<THREE.MeshStandardMaterial>(null);
 
   // Compute width × height that fits MAX_W × MAX_H without cropping or
-  // distorting the painting. Whichever dimension hits its cap first
-  // becomes the limiting one and the other shrinks to preserve aspect.
+  // distorting the painting. The sizing texture is locked to the "canonical"
+  // image of the painting (video for motion works, static for stills) so the
+  // plane size never changes when the bound texture swaps on hover.
+  const sourceTex = sizingTex ?? tex;
   const [w, h] = useMemo(() => {
-    const img = (tex.image as HTMLImageElement | HTMLVideoElement | undefined) || undefined;
+    const img = (sourceTex.image as HTMLImageElement | HTMLVideoElement | undefined) || undefined;
     const iw = img ? ('videoWidth' in img ? img.videoWidth : img.width) : 0;
     const ih = img ? ('videoHeight' in img ? img.videoHeight : img.height) : 0;
     const aspect = iw && ih ? iw / ih : 0.72;
-    // Start from MAX_H, scale down if width would exceed MAX_W.
     let height = MAX_H;
     let width = height * aspect;
     if (width > MAX_W) {
@@ -137,7 +147,7 @@ function Frame({
       height = width / aspect;
     }
     return [width, height];
-  }, [tex]);
+  }, [sourceTex]);
 
   useFrame((_, dt) => {
     if (!group.current) return;
