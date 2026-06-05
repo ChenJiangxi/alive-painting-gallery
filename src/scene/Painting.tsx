@@ -38,18 +38,23 @@ function PaintingStill(props: Props) {
 function PaintingWithMotion(props: Props) {
   const { work, slot, hoveredIndex } = props;
   const staticTex = useTexture(safeSrc(work.staticSrc));
-  const [videoTex, setVideoTex] = useState<THREE.VideoTexture | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [videoTex, setVideoTex] = useState<THREE.VideoTexture | null>(null);
   const isHovered = hoveredIndex === slot.workIndex;
 
+  // Create the <video> element EAGERLY on mount with metadata-only preload —
+  // a small cost (a few KB per work) that buys two things: (1) the element
+  // exists by the time the first onPointerOver fires, so unmute can happen
+  // inside the user gesture context (instead of waiting for a reactive
+  // useEffect to create it after the gesture is gone), and (2) on second
+  // and later hovers there's no jitter from re-creation.
   useEffect(() => {
-    if (!isHovered || videoRef.current) return;
     const v = document.createElement('video');
     v.src = safeSrc(work.motionSrc!);
     v.muted = true;
     v.loop = true;
     v.playsInline = true;
-    v.preload = 'auto';
+    v.preload = 'metadata';
     v.style.cssText =
       'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
     document.body.appendChild(v);
@@ -59,28 +64,22 @@ function PaintingWithMotion(props: Props) {
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
     setVideoTex(tex);
-    v.play().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHovered]);
+    return () => {
+      v.pause();
+      v.remove();
+      tex.dispose();
+    };
+  }, [work.motionSrc]);
 
+  // Play / pause around hover. The first play() will also be triggered
+  // by the gesture handler below, but this guards the case where the
+  // hover state was set via something other than pointer events.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (isHovered) v.play().catch(() => {});
     else v.pause();
   }, [isHovered]);
-
-  useEffect(() => {
-    return () => {
-      const v = videoRef.current;
-      if (v) {
-        v.pause();
-        v.remove();
-      }
-      if (videoTex) videoTex.dispose();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const tex = isHovered && videoTex ? videoTex : staticTex;
   return (
@@ -89,10 +88,12 @@ function PaintingWithMotion(props: Props) {
       sizingTex={staticTex}
       onGestureEnter={() => {
         const v = videoRef.current;
-        if (v) {
-          v.muted = false;
-          v.play().catch(() => {});
-        }
+        if (!v) return;
+        // Synchronous inside the pointer event handler = a valid user
+        // activation, so unmute + (re-)play is safe even the first time.
+        v.muted = false;
+        v.preload = 'auto';
+        v.play().catch(() => { /* still blocked; next gesture will retry */ });
       }}
       onGestureLeave={() => {
         const v = videoRef.current;
