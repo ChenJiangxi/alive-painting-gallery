@@ -1,17 +1,18 @@
 /**
  * Painting metadata for the "Picasso in Motion" exhibit.
  *
- * Each entry has the original-painting file (static) and optional motion file(s).
- * Year and English title are filled where the work is unambiguous; others left
- * as null for Jessy to fill in. The display layer falls back gracefully.
+ * Source of truth is the per-work folder on the Desktop. Each entry below
+ * matches one such folder. Statics that don't yet have a motion counterpart
+ * leave motionSrcs empty; the layout falls back gracefully and the work
+ * shows as a still on the rotunda wall.
  *
- * Files live in /public/works/picasso-in-motion/ and are referenced by
- * encoded URL because the names are Chinese.
+ * File names are Chinese; they're served from /works/picasso-in-motion/
+ * and URL-encoded at render time by safeSrc().
  */
 
 export type Work = {
   id: string;
-  /** Chinese painting name (also the filename root) */
+  /** Chinese painting name (also the folder root) */
   title: string;
   /** Best-effort English title; null = not provided */
   titleEn: string | null;
@@ -19,9 +20,9 @@ export type Work = {
   year: number | null;
   /** Static image filename inside /works/picasso-in-motion/ */
   staticSrc: string;
-  /** Motion video filename(s) inside /works/picasso-in-motion/, in display order */
-  motionSrcs: string[];
-  /** Optional curator note about the motion intervention (placeholder if empty) */
+  /** Motion video filename inside /works/picasso-in-motion/; null = static only */
+  motionSrc: string | null;
+  /** Optional curator note */
   note?: string;
 };
 
@@ -30,62 +31,35 @@ const ROOT = '/works/picasso-in-motion';
 export const works: Work[] = [
   {
     id: 'weeping-woman',
-    title: '哭泣的女人',
+    title: '哭泣的女子',
     titleEn: 'Weeping Woman',
     year: 1937,
     staticSrc: `${ROOT}/哭泣的女子.webp`,
-    motionSrcs: [`${ROOT}/哭泣的女人.mp4`],
+    motionSrc: `${ROOT}/哭泣的女人_一致性优化.mp4`,
   },
   {
     id: 'woman-with-hat-gaze',
-    title: '戴帽女人的凝视',
+    title: '戴帽子的女人',
     titleEn: 'Woman with a Hat',
     year: null,
+    staticSrc: `${ROOT}/戴帽的女人.jpeg`,
+    motionSrc: `${ROOT}/戴帽女人的凝视.mp4`,
+  },
+  {
+    id: 'woman-with-hat-2',
+    title: '戴帽子的女子',
+    titleEn: 'Woman in a Hat',
+    year: null,
     staticSrc: `${ROOT}/戴帽子的女子.webp`,
-    motionSrcs: [`${ROOT}/戴帽女人的凝视.mp4`],
+    motionSrc: `${ROOT}/戴帽子女子的凝视.mp4`,
   },
   {
-    id: 'cubist-pierrot-moving',
-    title: '立体派小丑（运动镜头）',
-    titleEn: 'Cubist Pierrot — Moving Camera',
+    id: 'cubist-pierrot',
+    title: '小丑',
+    titleEn: 'Cubist Pierrot',
     year: null,
     staticSrc: `${ROOT}/小丑.webp`,
-    motionSrcs: [`${ROOT}/立体派小丑演奏.mp4`],
-  },
-  {
-    id: 'cubist-pierrot-fixed',
-    title: '立体派小丑（固定镜头）',
-    titleEn: 'Cubist Pierrot — Fixed Camera',
-    year: null,
-    staticSrc: `${ROOT}/小丑.webp`,
-    motionSrcs: [`${ROOT}/立体派小丑演奏_固定镜头.mp4`],
-    note: '同一幅画的两次镜头练习。',
-  },
-
-  // -------- statics, no motion yet --------
-  {
-    id: 'guernica',
-    title: '格尔尼卡',
-    titleEn: 'Guernica',
-    year: 1937,
-    staticSrc: `${ROOT}/格尔尼卡.webp`,
-    motionSrcs: [],
-  },
-  {
-    id: 'the-dream',
-    title: '梦',
-    titleEn: 'Le Rêve',
-    year: 1932,
-    staticSrc: `${ROOT}/梦.webp`,
-    motionSrcs: [],
-  },
-  {
-    id: 'first-steps',
-    title: '蹒跚学步',
-    titleEn: 'First Steps',
-    year: 1943,
-    staticSrc: `${ROOT}/蹒跚学步.webp`,
-    motionSrcs: [],
+    motionSrc: `${ROOT}/立体派小丑演奏_固定镜头.mp4`,
   },
   {
     id: 'violin',
@@ -93,39 +67,15 @@ export const works: Work[] = [
     titleEn: 'Violin',
     year: null,
     staticSrc: `${ROOT}/小提琴.webp`,
-    motionSrcs: [],
-  },
-  {
-    id: 'matador',
-    title: '斗牛士',
-    titleEn: 'Matador',
-    year: null,
-    staticSrc: `${ROOT}/斗牛士.webp`,
-    motionSrcs: [],
-  },
-  {
-    id: 'bullfighter-on-horseback',
-    title: '骑马斗牛士',
-    titleEn: 'Bullfighter on Horseback',
-    year: null,
-    staticSrc: `${ROOT}/骑马斗牛士.webp`,
-    motionSrcs: [],
+    motionSrc: `${ROOT}/分析立体派小提琴演奏.mp4`,
   },
   {
     id: 'man-with-straw-hat-icecream',
     title: '戴着草帽吃冰淇淋的男子',
-    titleEn: 'Man with Straw Hat and Ice Cream',
+    titleEn: 'Man with Straw Hat Eating Ice Cream',
     year: null,
     staticSrc: `${ROOT}/戴着草帽吃冰淇淋的男子.webp`,
-    motionSrcs: [],
-  },
-  {
-    id: 'woman-with-hat-alt',
-    title: '戴帽的女人',
-    titleEn: 'Woman in a Hat',
-    year: null,
-    staticSrc: `${ROOT}/戴帽的女人.jpeg`,
-    motionSrcs: [],
+    motionSrc: `${ROOT}/吃冰淇淋的男子_完整故事版.mp4`,
   },
   {
     id: 'table-by-window',
@@ -133,15 +83,7 @@ export const works: Work[] = [
     titleEn: 'Table by the Window',
     year: null,
     staticSrc: `${ROOT}/窗前的桌子.webp`,
-    motionSrcs: [],
-  },
-  {
-    id: 'couple-on-street',
-    title: '街上的情侣',
-    titleEn: 'Couple in the Street',
-    year: null,
-    staticSrc: `${ROOT}/街上的情侣.webp`,
-    motionSrcs: [],
+    motionSrc: `${ROOT}/窗前桌子的静物.mp4`,
   },
   {
     id: 'sewing-woman-with-children',
@@ -149,13 +91,54 @@ export const works: Work[] = [
     titleEn: 'Sewing Woman Surrounded by Her Children',
     year: null,
     staticSrc: `${ROOT}/缝纫的女人周围环绕着她的孩子们  .webp`,
-    motionSrcs: [],
+    motionSrc: `${ROOT}/缝纫的女人与孩子们.mp4`,
+  },
+  {
+    id: 'first-steps',
+    title: '蹒跚学步',
+    titleEn: 'First Steps',
+    year: 1943,
+    staticSrc: `${ROOT}/蹒跚学步.webp`,
+    motionSrc: `${ROOT}/蹒跚学步_完整故事.mp4`,
+  },
+  {
+    id: 'bullfighter-on-horseback',
+    title: '骑马斗牛士',
+    titleEn: 'Bullfighter on Horseback',
+    year: null,
+    staticSrc: `${ROOT}/骑马斗牛士.webp`,
+    motionSrc: `${ROOT}/骑马斗牛士_完整搏斗.mp4`,
+  },
+
+  // -------- statics, no motion yet (TODO: add when ready) --------
+  {
+    id: 'cat-eating-bird',
+    title: '吃鸟的猫',
+    titleEn: 'Cat Eating a Bird',
+    year: null,
+    staticSrc: `${ROOT}/吃鸟的猫.webp`,
+    motionSrc: null,
+  },
+  {
+    id: 'woman-with-rooster',
+    title: '女子和公鸡',
+    titleEn: 'Woman with a Rooster',
+    year: null,
+    staticSrc: `${ROOT}/640.webp`,
+    motionSrc: null,
+  },
+  {
+    id: 'doves-in-studio-velazquez',
+    title: '画室里的鸽子（委拉斯开兹）',
+    titleEn: "Doves in the Studio (after Velázquez)",
+    year: null,
+    staticSrc: `${ROOT}/画室里的鸽子（委拉斯开兹）.webp`,
+    motionSrc: null,
   },
 ];
 
-/** Encode the path segment so spaces / Chinese names survive the browser URL bar. */
+/** URL-encode the trailing filename so Chinese names survive the browser. */
 export function safeSrc(src: string): string {
-  // /works/picasso-in-motion/X — only encode the final segment
   const slash = src.lastIndexOf('/');
   return src.slice(0, slash + 1) + encodeURIComponent(src.slice(slash + 1));
 }

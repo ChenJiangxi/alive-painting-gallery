@@ -20,7 +20,7 @@ type Props = {
 
 export function Painting(props: Props) {
   const { work } = props;
-  if (work.motionSrcs.length > 0) {
+  if (work.motionSrc) {
     return <PaintingWithMotion {...props} />;
   }
   return <PaintingStill {...props} />;
@@ -31,22 +31,16 @@ function PaintingStill(props: Props) {
   return <Frame tex={staticTex} {...props} />;
 }
 
-type FrameProps = Props & {
-  tex: THREE.Texture;
-  /** synchronous gesture-context callbacks for things like un/muting media */
-  onGestureEnter?: () => void;
-  onGestureLeave?: () => void;
-  /** if set, lock plane geometry to this image regardless of which tex is
-   *  currently bound. Prevents the plane from resizing when video swaps in. */
-  sizingTex?: THREE.Texture;
-};
-
 /**
  * Motion painting — manually managed video element so we control:
  *  - same-origin (no crossOrigin, so WebGL never taints the texture),
  *  - DOM-attached (some browsers refuse to decode detached videos),
- *  - eager preload + muted autoplay so the first frame is always ready,
- *  - hover unmutes (the hover event is a valid user gesture), leave mutes.
+ *  - lazy creation on first hover (10 videos × ~4 MB would blow first paint),
+ *  - persistent across hovers (don't tear down on leave; just pause).
+ *
+ * Plane dimensions are ALWAYS derived from the still image, so the painting
+ * occupies its "original" size on the wall. The video plays into the same
+ * plane on hover and may be slightly stretched if its aspect differs.
  */
 function PaintingWithMotion(props: Props) {
   const { work, slot, hoveredIndex } = props;
@@ -55,14 +49,15 @@ function PaintingWithMotion(props: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isHovered = hoveredIndex === slot.workIndex;
 
+  // Initialize video on FIRST hover; persist for the component's lifetime.
   useEffect(() => {
+    if (!isHovered || videoRef.current) return;
     const v = document.createElement('video');
-    v.src = safeSrc(work.motionSrcs[0]);
+    v.src = safeSrc(work.motionSrc!);
     v.muted = true;
     v.loop = true;
     v.playsInline = true;
     v.preload = 'auto';
-    // hide off-screen but keep in DOM so the browser actually decodes frames
     v.style.cssText =
       'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
     document.body.appendChild(v);
@@ -72,34 +67,36 @@ function PaintingWithMotion(props: Props) {
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
     setVideoTex(tex);
-    v.play().catch(() => { /* will retry on hover */ });
-    return () => {
-      v.pause();
-      v.remove();
-      tex.dispose();
-    };
+    v.play().catch(() => { /* will retry on next hover */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isHovered]);
 
-  // Hover ensures playback (in case autoplay was blocked at mount).
-  // We intentionally do NOT unmute here — unmuting in a reactive effect is
-  // not a "user activation" so browsers will pause the video. Unmute is
-  // handled in onPointerOver directly inside Frame's gesture context below.
+  // Play/pause based on hover; do not destroy.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (isHovered) v.play().catch(() => { /* still blocked */ });
+    else v.pause();
   }, [isHovered]);
 
+  // One-shot dispose on unmount.
+  useEffect(() => {
+    return () => {
+      const v = videoRef.current;
+      if (v) {
+        v.pause();
+        v.remove();
+      }
+      if (videoTex) videoTex.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const tex = isHovered && videoTex ? videoTex : staticTex;
-  // Lock the plane to the VIDEO's aspect when one is available — that's
-  // what the user considers "the original size". The static is shown at
-  // the same plane and may be slightly stretched, but the painting never
-  // jumps size when hovered.
   return (
     <Frame
       tex={tex}
-      sizingTex={videoTex ?? staticTex}
+      sizingTex={staticTex}
       onGestureEnter={() => {
         const v = videoRef.current;
         if (v) {
@@ -116,6 +113,13 @@ function PaintingWithMotion(props: Props) {
   );
 }
 
+type FrameProps = Props & {
+  tex: THREE.Texture;
+  sizingTex?: THREE.Texture;
+  onGestureEnter?: () => void;
+  onGestureLeave?: () => void;
+};
+
 function Frame({
   tex,
   sizingTex,
@@ -130,10 +134,10 @@ function Frame({
   const group = useRef<THREE.Group>(null);
   const frameMat = useRef<THREE.MeshStandardMaterial>(null);
 
-  // Compute width × height that fits MAX_W × MAX_H without cropping or
-  // distorting the painting. The sizing texture is locked to the "canonical"
-  // image of the painting (video for motion works, static for stills) so the
-  // plane size never changes when the bound texture swaps on hover.
+  // Plane geometry is locked to the still image's aspect, fitted inside the
+  // bounding box. Whichever dimension hits its cap first becomes the limiting
+  // factor; the other shrinks to preserve aspect — never cropped, never
+  // stretched. The video, when bound, is rendered in the same plane.
   const sourceTex = sizingTex ?? tex;
   const [w, h] = useMemo(() => {
     const img = (sourceTex.image as HTMLImageElement | HTMLVideoElement | undefined) || undefined;

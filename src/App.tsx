@@ -121,7 +121,7 @@ function CaptionPanel({
                   {work.note}
                 </div>
               )}
-              {work.motionSrcs.length > 0 && (
+              {work.motionSrc && (
                 <div className="mt-3 text-[9px] tracking-[0.35em] uppercase text-[var(--color-ink-faint)] font-[family-name:var(--font-mono)]">
                   intervention by jessy · 2026
                 </div>
