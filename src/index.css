@@ -1,0 +1,45 @@
+@import 'tailwindcss';
+@import '@fontsource/cormorant-garamond/400.css';
+@import '@fontsource/cormorant-garamond/500.css';
+@import '@fontsource/cormorant-garamond/600.css';
+@import '@fontsource-variable/inter';
+
+@theme {
+  /* Museum white-cube palette — warm, restrained */
+  --color-paper: #f4f0e8;       /* primary wall — warm cream */
+  --color-paper-deep: #ece6d9;  /* slightly darker for hover / inactive */
+  --color-ink: #1a1714;         /* main text */
+  --color-ink-soft: #45403a;    /* body text on cream */
+  --color-ink-mute: #756e63;    /* secondary metadata */
+  --color-ink-faint: #a39a8b;   /* placeholder, dividers */
+  --color-rule: #d8d1c1;        /* hairline dividers */
+
+  /* Type system — serif display + sans body, museum-traditional */
+  --font-display: 'Cormorant Garamond', 'Times New Roman', Georgia, serif;
+  --font-body: 'Inter Variable', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  --font-zh: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@layer base {
+  html, body {
+    background: var(--color-paper);
+    color: var(--color-ink-soft);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+
+  body {
+    /* Subtle paper grain — barely there */
+    background-image:
+      radial-gradient(rgba(0, 0, 0, 0.018) 1px, transparent 1px);
+    background-size: 3px 3px;
+  }
+
+  /* Default focus ring — quiet but visible */
+  :focus-visible {
+    outline: 1px solid var(--color-ink);
+    outline-offset: 3px;
+  }
+}

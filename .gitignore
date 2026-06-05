@@ -1,0 +1,8 @@
+node_modules
+dist
+.vite
+*.local
+.DS_Store
+
+# typescript incremental build artifacts
+*.tsbuildinfo
