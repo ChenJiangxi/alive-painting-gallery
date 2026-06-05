@@ -66,6 +66,36 @@ function PaintingWithMotion(props: Props) {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
+
+    // CSS object-fit:cover equivalent. The plane is sized for the static
+    // image; if the video has a different aspect, crop it (don't stretch).
+    // Compute on metadata load, since videoWidth/Height aren't available
+    // until then.
+    const fitCover = () => {
+      const sImg = staticTex.image as HTMLImageElement | undefined;
+      const sw = sImg?.width ?? 0;
+      const sh = sImg?.height ?? 0;
+      const vw = v.videoWidth;
+      const vh = v.videoHeight;
+      if (!sw || !sh || !vw || !vh) return;
+      const sa = sw / sh;
+      const va = vw / vh;
+      if (va < sa) {
+        // video is taller than plane — crop top + bottom
+        tex.repeat.set(1, va / sa);
+        tex.offset.set(0, (1 - va / sa) / 2);
+      } else if (va > sa) {
+        // video is wider than plane — crop sides
+        tex.repeat.set(sa / va, 1);
+        tex.offset.set((1 - sa / va) / 2, 0);
+      } else {
+        tex.repeat.set(1, 1);
+        tex.offset.set(0, 0);
+      }
+    };
+    if (v.videoWidth) fitCover();
+    else v.addEventListener('loadedmetadata', fitCover);
+
     setVideoTex(tex);
     v.play().catch(() => { /* will retry on next hover */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps

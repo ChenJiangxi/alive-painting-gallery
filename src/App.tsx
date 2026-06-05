@@ -169,16 +169,15 @@ function CuratorOverlay({ onClose }: { onClose: () => void }) {
           Picasso, Once More Breathing.
         </h2>
         <div className="space-y-5 font-[family-name:var(--font-zh)] text-[15px] leading-[1.85] text-[var(--color-ink-soft)]">
+          {/* First draft by Asst — replace freely with your own voice. */}
           <p>
-            <span className="text-[var(--color-ink-faint)]">
-              [策展人短文 · 待 Jessy 写]
-            </span>
+            让 AI 让画动起来这件事，2025 年底已经不是新闻。我犹豫了几个月才动手做这间展厅 —— 不是怕被说蹭技术，是怕这些动起来的版本太满，盖过原作本身的气。
           </p>
           <p>
-            <span className="text-[var(--color-ink-faint)]">
-              先放一段占位。你可以写：为什么是毕加索？让画动起来这件事意味着什么？
-              你希望走进这间小展厅的人，离开时记住什么？两三段，不用长。
-            </span>
+            最后留下的十段呼吸，是和原作之间像隔了一层很薄的玻璃的：没有抢，只是稍微挪了一下。哭泣的女人眨了一下眼睛，戴帽子的女子目光从画里移开又移回来，立体派的小丑把手里的乐器按了一下。每段循环十几秒，又回到原作的姿态。
+          </p>
+          <p>
+            中央站一会儿，画会自己转过来。把鼠标放上去，那一幅就开始呼吸。还有三幅暂时没有动起来的版本，留着。
           </p>
         </div>
         <div className="mt-10 text-[10px] tracking-[0.3em] uppercase text-[var(--color-ink-faint)] font-[family-name:var(--font-mono)]">

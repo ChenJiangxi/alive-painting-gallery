@@ -12,8 +12,8 @@ type Props = {
 };
 
 const CENTER = new THREE.Vector3(0, ROTUNDA_GEOM.eyeHeight, 0);
-/** auto-rotate angular speed at rest, in rad/sec (~90s per full revolution) */
-const AUTO_ROTATE_RPS = (Math.PI * 2) / 90;
+/** auto-rotate angular speed at rest, in rad/sec (~180s per full revolution) */
+const AUTO_ROTATE_RPS = (Math.PI * 2) / 180;
 /** how much yaw the user can scrub by dragging across the whole canvas */
 const DRAG_YAW_PER_PX = 0.0055;
 
@@ -86,22 +86,23 @@ export function CameraRig({ focusedIndex }: Props) {
     const lookA = new THREE.Vector3().copy(CENTER).add(lookOffsetA);
     const posA = new THREE.Vector3().copy(CENTER);
 
-    // Pose B (focused): hover near the painting on the wall, looking at the painting.
+    // Pose B (focused): stand back far enough that the caption strip at the
+    // bottom doesn't overlap the painting. Sit slightly above the painting
+    // center so the painting reads in the upper 60% of the viewport.
     let posB = posA;
     let lookB = lookA;
     if (focusedIndex != null) {
       const slot = slots[focusedIndex];
-      const standoff = 1.4;
-      // inward direction at this slot
+      const standoff = 2.6;
       const r = Math.hypot(slot.position[0], slot.position[2]);
       const ix = -slot.position[0] / r;
       const iz = -slot.position[2] / r;
       posB = new THREE.Vector3(
         slot.position[0] + ix * standoff,
-        slot.position[1],
+        slot.position[1] + 0.15,
         slot.position[2] + iz * standoff,
       );
-      lookB = new THREE.Vector3(slot.position[0], slot.position[1], slot.position[2]);
+      lookB = new THREE.Vector3(slot.position[0], slot.position[1] + 0.18, slot.position[2]);
     }
 
     // Blend factor toward 1 when focused, toward 0 otherwise.
