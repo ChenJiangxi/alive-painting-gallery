@@ -28,37 +28,62 @@ export function Painting({ work, slot, onSelect, hoveredIndex, setHovered }: Pro
     return [PAINTING_HEIGHT * aspect, PAINTING_HEIGHT];
   }, [staticTex]);
 
-  // Lazy video texture — only created when this painting is first hovered.
-  // Keep showing the still until the video actually has frames; otherwise
-  // VideoTexture renders BLACK during the load window and the painting
-  // appears to "go dark" instead of "come alive".
-  const [videoTex, setVideoTex] = useState<THREE.VideoTexture | null>(null);
+  // Lazy video texture — created on first hover, then persisted for the
+  // lifetime of the painting so subsequent hovers just play() again. The
+  // earlier shape destroyed the video in the effect cleanup, which made
+  // every hover after the first a no-op.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const texRef = useRef<THREE.VideoTexture | null>(null);
   const [videoReady, setVideoReady] = useState(false);
+  // bumped to force re-render so activeTex picks up texRef once it's created
+  const [, setTick] = useState(0);
+
+  // Create video lazily on first hover. Once created, it lives until unmount.
   useEffect(() => {
-    if (!hasMotion || !isHovered || videoTex) return;
+    if (!hasMotion || !isHovered || videoRef.current) return;
     const v = document.createElement('video');
     v.src = safeSrc(work.motionSrcs[0]);
     v.crossOrigin = 'anonymous';
     v.loop = true;
     v.muted = true;
     v.playsInline = true;
-    v.autoplay = true;
+    v.preload = 'auto';
     const onReady = () => setVideoReady(true);
     v.addEventListener('playing', onReady);
     v.addEventListener('loadeddata', onReady);
-    v.play().catch(() => { /* ignored — will retry on next hover */ });
+    videoRef.current = v;
     const tex = new THREE.VideoTexture(v);
     tex.colorSpace = THREE.SRGBColorSpace;
-    setVideoTex(tex);
-    return () => {
-      v.removeEventListener('playing', onReady);
-      v.removeEventListener('loadeddata', onReady);
-      v.pause();
-      v.src = '';
-      tex.dispose();
-    };
+    texRef.current = tex;
+    v.play().catch(() => { /* autoplay blocked? next hover will retry below */ });
+    setTick((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHovered]);
+
+  // Play/pause based on hover state — independent of the create-once effect.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (isHovered) {
+      v.play().catch(() => { /* still blocked — show static */ });
+    } else {
+      v.pause();
+    }
+  }, [isHovered]);
+
+  // Dispose on real unmount only.
+  useEffect(() => {
+    return () => {
+      const v = videoRef.current;
+      const tex = texRef.current;
+      if (v) {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+      }
+      if (tex) tex.dispose();
+    };
+  }, []);
 
   // Subtle hover lift — painting pushes slightly out from the wall + a soft glow rim.
   useFrame((_, dt) => {
@@ -82,7 +107,7 @@ export function Painting({ work, slot, onSelect, hoveredIndex, setHovered }: Pro
   });
 
   // Pick the active texture; only swap to video once it actually has frames.
-  const activeTex = isHovered && videoTex && videoReady ? videoTex : staticTex;
+  const activeTex = isHovered && texRef.current && videoReady ? texRef.current : staticTex;
 
   // Tiny frame around the painting (subtle warm-brown matte)
   const frameThickness = 0.015;

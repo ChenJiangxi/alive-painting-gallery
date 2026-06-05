@@ -7,9 +7,11 @@ type Props = {
   hoveredIndex: number | null;
   setHovered: (i: number | null) => void;
   onSelect: (workIndex: number) => void;
+  /** click on the hallway floor → walk to that Z */
+  onWalkTo: (worldZ: number) => void;
 };
 
-export function Hall({ hoveredIndex, setHovered, onSelect }: Props) {
+export function Hall({ hoveredIndex, setHovered, onSelect, onWalkTo }: Props) {
   const slots = useMemo(() => makeSlots(works.length), []);
 
   const wallColor = '#ece6d9';  // warm cream walls
@@ -23,8 +25,24 @@ export function Hall({ hoveredIndex, setHovered, onSelect }: Props) {
 
   return (
     <group position={[0, 0, centerZ]}>
-      {/* floor */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+      {/* floor — click to walk to that spot */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0, 0]}
+        receiveShadow
+        onClick={(e) => {
+          e.stopPropagation();
+          // pointer cursor is set up in Painting's hover; here the floor click
+          // is the primary "walk forward" gesture, so signal it back to App.
+          onWalkTo(e.point.z);
+        }}
+        onPointerOver={() => {
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = '';
+        }}
+      >
         <planeGeometry args={[HALL_GEOM.width, HALL_GEOM.length]} />
         <meshStandardMaterial color={floorColor} roughness={0.85} />
       </mesh>

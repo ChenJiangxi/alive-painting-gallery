@@ -4,13 +4,27 @@ import { Hall } from './scene/Hall';
 import { CameraRig } from './scene/CameraRig';
 import { works } from './data/works';
 
+// How far down the hall the camera can travel. The hall is ~26 long with the
+// camera starting at -8; clamp roughly to keep the camera off the far wall.
+const WALK_MIN = 0;
+const WALK_MAX = 14;
+// Convert a clicked world-Z on the floor into a walk offset (relative to entrance).
+const ENTRANCE_Z = -8;
+
 export default function App() {
   const [hoveredIndex, setHovered] = useState<number | null>(null);
   const [focusedIndex, setFocused] = useState<number | null>(null);
+  const [walkZ, setWalkZ] = useState(0);
   const [showCuratorNote, setShowCurator] = useState(false);
 
   const selectWork = useCallback((i: number) => setFocused(i), []);
   const exitFocus = useCallback(() => setFocused(null), []);
+  const walkTo = useCallback((worldZ: number) => {
+    // Don't walk while a painting is focused; the camera is busy.
+    setFocused(null);
+    const next = Math.max(WALK_MIN, Math.min(WALK_MAX, worldZ - ENTRANCE_Z - 2));
+    setWalkZ(next);
+  }, []);
 
   // ESC backs out
   useEffect(() => {
@@ -18,11 +32,12 @@ export default function App() {
       if (e.key === 'Escape') {
         if (showCuratorNote) setShowCurator(false);
         else if (focusedIndex != null) exitFocus();
+        else if (walkZ !== 0) setWalkZ(0); // 3rd ESC press = back to entrance
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [focusedIndex, exitFocus, showCuratorNote]);
+  }, [focusedIndex, exitFocus, showCuratorNote, walkZ]);
 
   const focused = focusedIndex != null ? works[focusedIndex] : null;
 
@@ -40,11 +55,12 @@ export default function App() {
       >
         <color attach="background" args={['#0e0c0a']} />
         <fog attach="fog" args={['#0e0c0a', 14, 28]} />
-        <CameraRig focusedIndex={focusedIndex} />
+        <CameraRig focusedIndex={focusedIndex} walkZ={walkZ} />
         <Hall
           hoveredIndex={hoveredIndex}
           setHovered={setHovered}
           onSelect={selectWork}
+          onWalkTo={walkTo}
         />
       </Canvas>
 
@@ -63,12 +79,14 @@ export default function App() {
         </button>
       </header>
 
-      {/* HUD: bottom hint — only visible at entrance */}
+      {/* HUD: bottom hint — only visible in overview */}
       {focusedIndex == null && (
         <div className="pointer-events-none absolute bottom-6 left-0 right-0 text-center text-[10px] tracking-[0.4em] uppercase font-[family-name:var(--font-mono)] text-[var(--color-paper)]/50 z-10">
-          {hoveredIndex == null
-            ? 'move · hover a painting · 让它呼吸'
-            : 'click · 走近看'}
+          {hoveredIndex != null
+            ? 'click · 走近这幅画'
+            : walkZ === 0
+              ? 'hover a painting · click the floor · 往里走'
+              : 'click further · esc · 回入口'}
         </div>
       )}
 
