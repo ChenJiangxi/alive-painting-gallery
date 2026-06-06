@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ROTUNDA_GEOM, makeSlots } from './positions';
 import { works } from '../data/works';
+import { interactionState } from './interactionState';
 
 const slots = makeSlots(works.length);
 
@@ -40,24 +41,40 @@ export function CameraRig({ focusedIndex }: Props) {
     camera.lookAt(new THREE.Vector3(0, ROTUNDA_GEOM.eyeHeight, 1));
   }, [camera]);
 
-  // Drag handlers on the canvas DOM element.
+  // Drag handlers on the canvas DOM element. A small movement threshold lets
+  // us distinguish "user clicked" from "user grabbed to rotate" — without it,
+  // every click would briefly engage drag and suppress its own hover.
   useEffect(() => {
     const el = gl.domElement;
+    const DRAG_THRESHOLD_PX = 4;
+    let downX = 0;
+    let downY = 0;
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
-      dragging.current = true;
+      dragging.current = false; // confirmed only after crossing threshold
+      downX = e.clientX;
+      downY = e.clientY;
       lastDragX.current = e.clientX;
       dragYawDelta.current = 0;
       el.setPointerCapture?.(e.pointerId);
     };
     const onPointerMove = (e: PointerEvent) => {
-      if (!dragging.current) return;
-      const dx = e.clientX - lastDragX.current;
+      if (!dragging.current) {
+        const dx = e.clientX - downX;
+        const dy = e.clientY - downY;
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+        dragging.current = true;
+        interactionState.dragging = true;
+        document.body.style.cursor = 'grabbing';
+      }
+      const moveDx = e.clientX - lastDragX.current;
       lastDragX.current = e.clientX;
-      dragYawDelta.current += -dx * DRAG_YAW_PER_PX;
+      dragYawDelta.current += -moveDx * DRAG_YAW_PER_PX;
     };
     const onPointerUp = (e: PointerEvent) => {
       dragging.current = false;
+      interactionState.dragging = false;
+      if (document.body.style.cursor === 'grabbing') document.body.style.cursor = '';
       el.releasePointerCapture?.(e.pointerId);
     };
     el.addEventListener('pointerdown', onPointerDown);

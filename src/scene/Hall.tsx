@@ -8,13 +8,14 @@ type Props = {
   hoveredIndex: number | null;
   setHovered: (i: number | null) => void;
   onSelect: (workIndex: number) => void;
+  focusedIndex: number | null;
 };
 
 /**
  * Rotunda: cylindrical room, viewer at center. The cylinder wall is rendered
  * with BackSide so the viewer (inside) actually sees the inner face.
  */
-export function Rotunda({ hoveredIndex, setHovered, onSelect }: Props) {
+export function Rotunda({ hoveredIndex, setHovered, onSelect, focusedIndex }: Props) {
   const slots = useMemo(() => makeSlots(works.length), []);
 
   const wallColor = '#ece6d9';   // warm cream walls
@@ -60,6 +61,7 @@ export function Rotunda({ hoveredIndex, setHovered, onSelect }: Props) {
           onSelect={onSelect}
           hoveredIndex={hoveredIndex}
           setHovered={setHovered}
+          focusedIndex={focusedIndex}
         />
       ))}
     </group>

@@ -4,6 +4,7 @@ import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { safeSrc, type Work } from '../data/works';
 import type { Slot } from './positions';
+import { interactionState } from './interactionState';
 
 const MAX_H = 1.55;
 const MAX_W = 1.8;
@@ -14,6 +15,8 @@ type Props = {
   onSelect: (workIndex: number) => void;
   hoveredIndex: number | null;
   setHovered: (i: number | null) => void;
+  /** the painting currently dollied-in / focused, if any */
+  focusedIndex: number | null;
 };
 
 export function Painting(props: Props) {
@@ -36,19 +39,19 @@ function PaintingStill(props: Props) {
  * good.
  */
 function PaintingWithMotion(props: Props) {
-  const { work, slot, hoveredIndex } = props;
+  const { work, slot, hoveredIndex, focusedIndex } = props;
   const staticTex = useTexture(safeSrc(work.staticSrc));
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoTex, setVideoTex] = useState<THREE.VideoTexture | null>(null);
   /** has the video buffered enough to render at least one real frame? */
   const [videoReady, setVideoReady] = useState(false);
   const isHovered = hoveredIndex === slot.workIndex;
+  const isFocused = focusedIndex === slot.workIndex;
+  /** "alive" while hovered OR focused — focus survives the pointer leaving
+   *  the painting when the camera dollies in. */
+  const isActive = isHovered || isFocused;
 
-  // Create the <video> element EAGERLY on mount with metadata-only preload —
-  // a small cost (a few KB per work) that buys two things: (1) the element
-  // exists by the time the first onPointerOver fires, so unmute can happen
-  // inside the user gesture context, and (2) on second and later hovers
-  // there's no jitter from re-creation.
+  // Create the <video> element on mount with metadata-only preload.
   useEffect(() => {
     const v = document.createElement('video');
     v.src = safeSrc(work.motionSrc!);
@@ -59,7 +62,6 @@ function PaintingWithMotion(props: Props) {
     v.style.cssText =
       'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
     const markReady = () => setVideoReady(true);
-    // Either of these guarantees we have decoded at least the first frame.
     v.addEventListener('loadeddata', markReady);
     v.addEventListener('playing', markReady);
     document.body.appendChild(v);
@@ -78,41 +80,27 @@ function PaintingWithMotion(props: Props) {
     };
   }, [work.motionSrc]);
 
-  // Play / pause around hover. The first play() will also be triggered
-  // by the gesture handler below, but this guards the case where the
-  // hover state was set via something other than pointer events.
+  // Play while active (hovered or focused); pause AND rewind to 0 when idle so
+  // every visit starts from the painting's resting pose. Audio rules:
+  //   - hover alone:   muted (silent breathing)
+  //   - focused:       unmuted (you stepped closer to listen)
+  // This is the cleanest model that survives auto-rotation sweeping a
+  // stationary cursor (which would otherwise spike sound on every painting).
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (isHovered) v.play().catch(() => {});
-    else v.pause();
-  }, [isHovered]);
+    v.muted = !isFocused;
+    if (isActive) {
+      v.preload = 'auto';
+      v.play().catch(() => {});
+    } else {
+      v.pause();
+      try { v.currentTime = 0; } catch { /* not yet seekable */ }
+    }
+  }, [isActive, isFocused]);
 
-  // Only swap to the video texture once we know it has real frames — otherwise
-  // VideoTexture renders solid black until the decoder catches up, which the
-  // viewer reads as "the painting went dark on hover" rather than "the painting
-  // started breathing".
-  const tex = isHovered && videoTex && videoReady ? videoTex : staticTex;
-  return (
-    <Frame
-      tex={tex}
-      sizingTex={staticTex}
-      onGestureEnter={() => {
-        const v = videoRef.current;
-        if (!v) return;
-        // Synchronous inside the pointer event handler = a valid user
-        // activation, so unmute + (re-)play is safe even the first time.
-        v.muted = false;
-        v.preload = 'auto';
-        v.play().catch(() => { /* still blocked; next gesture will retry */ });
-      }}
-      onGestureLeave={() => {
-        const v = videoRef.current;
-        if (v) v.muted = true;
-      }}
-      {...props}
-    />
-  );
+  const tex = isActive && videoTex && videoReady ? videoTex : staticTex;
+  return <Frame tex={tex} sizingTex={staticTex} {...props} />;
 }
 
 type FrameProps = Props & {
@@ -120,8 +108,6 @@ type FrameProps = Props & {
   /** Plane geometry is sized from this texture (always the still) so the
    *  plane never resizes when the active texture swaps to video on hover. */
   sizingTex: THREE.Texture;
-  onGestureEnter?: () => void;
-  onGestureLeave?: () => void;
 };
 
 function Frame({
@@ -131,10 +117,11 @@ function Frame({
   onSelect,
   hoveredIndex,
   setHovered,
-  onGestureEnter,
-  onGestureLeave,
+  focusedIndex,
 }: FrameProps) {
   const isHovered = hoveredIndex === slot.workIndex;
+  const isFocused = focusedIndex === slot.workIndex;
+  const isActive = isHovered || isFocused;
   const group = useRef<THREE.Group>(null);
   const frameMat = useRef<THREE.MeshStandardMaterial>(null);
 
@@ -154,7 +141,7 @@ function Frame({
 
   useFrame((_, dt) => {
     if (!group.current) return;
-    const target = isHovered ? 0.05 : 0;
+    const target = isActive ? 0.05 : 0;
     const inwardX = -slot.position[0] / Math.hypot(slot.position[0], slot.position[2]);
     const inwardZ = -slot.position[2] / Math.hypot(slot.position[0], slot.position[2]);
     group.current.position.x = THREE.MathUtils.damp(
@@ -171,7 +158,7 @@ function Frame({
     );
 
     if (frameMat.current) {
-      const intensity = isHovered ? 0.32 : 0;
+      const intensity = isActive ? 0.32 : 0;
       frameMat.current.emissiveIntensity = THREE.MathUtils.damp(
         frameMat.current.emissiveIntensity,
         intensity,
@@ -190,18 +177,22 @@ function Frame({
       position={slot.position}
       rotation={[0, slot.rotationY, 0]}
       onPointerOver={(e) => {
+        // During a drag-to-rotate, the raycaster keeps re-acquiring whichever
+        // painting passes under the cursor — we don't want that to trigger
+        // hover state or anything downstream.
+        if (interactionState.dragging) return;
         e.stopPropagation();
-        document.body.style.cursor = 'pointer';
+        if (!isFocused) document.body.style.cursor = 'pointer';
         setHovered(slot.workIndex);
-        onGestureEnter?.();
       }}
       onPointerOut={(e) => {
+        if (interactionState.dragging) return;
         e.stopPropagation();
-        document.body.style.cursor = '';
+        if (document.body.style.cursor === 'pointer') document.body.style.cursor = '';
         if (hoveredIndex === slot.workIndex) setHovered(null);
-        onGestureLeave?.();
       }}
       onClick={(e) => {
+        if (interactionState.dragging) return; // suppress click at the end of a drag
         e.stopPropagation();
         onSelect(slot.workIndex);
       }}

@@ -45,6 +45,7 @@ export default function App() {
             hoveredIndex={hoveredIndex}
             setHovered={setHovered}
             onSelect={selectWork}
+            focusedIndex={focusedIndex}
           />
         </Suspense>
       </Canvas>
@@ -68,8 +69,8 @@ export default function App() {
       {focusedIndex == null && (
         <div className="pointer-events-none absolute bottom-6 left-0 right-0 text-center text-[10px] tracking-[0.4em] uppercase font-[family-name:var(--font-mono)] text-[var(--color-paper)]/50 z-10">
           {hoveredIndex != null
-            ? 'click · 走近这幅画'
-            : 'hover a painting · drag · 转一圈'}
+            ? 'click · 走近 + 听'
+            : 'hover · 让画动 · drag · 转一圈'}
         </div>
       )}
 
@@ -169,15 +170,18 @@ function CuratorOverlay({ onClose }: { onClose: () => void }) {
           Picasso, Once More Breathing.
         </h2>
         <div className="space-y-5 font-[family-name:var(--font-zh)] text-[15px] leading-[1.85] text-[var(--color-ink-soft)]">
-          {/* First draft by Asst — replace freely with your own voice. */}
+          {/* Draft by Asst — replace freely with your own voice. */}
           <p>
-            让 AI 让画动起来这件事，2025 年底已经不是新闻。我犹豫了几个月才动手做这间展厅 —— 不是怕被说蹭技术，是怕这些动起来的版本太满，盖过原作本身的气。
+            画里的人从来不是在「站着」。哭泣的女人在哭，戴帽子的女子在转头，立体派小丑在弹琴。
+            被画下的那一刻，时间停了。
           </p>
           <p>
-            最后留下的十段呼吸，是和原作之间像隔了一层很薄的玻璃的：没有抢，只是稍微挪了一下。哭泣的女人眨了一下眼睛，戴帽子的女子目光从画里移开又移回来，立体派的小丑把手里的乐器按了一下。每段循环十几秒，又回到原作的姿态。
+            这十段呼吸，是想把那一秒再松开一点。
+            剩下三幅暂时没有动，留着。
           </p>
           <p>
-            中央站一会儿，画会自己转过来。把鼠标放上去，那一幅就开始呼吸。还有三幅暂时没有动起来的版本，留着。
+            中央站一会儿，画会自己转过来。
+            鼠标停在一幅画上，它会动。点一下，就听得到。
           </p>
         </div>
         <div className="mt-10 text-[10px] tracking-[0.3em] uppercase text-[var(--color-ink-faint)] font-[family-name:var(--font-mono)]">
