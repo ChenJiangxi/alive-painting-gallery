@@ -109,32 +109,17 @@ export const works: Work[] = [
     staticSrc: `${ROOT}/骑马斗牛士.webp`,
     motionSrc: `${ROOT}/骑马斗牛士_完整搏斗.mp4`,
   },
-
-  // -------- statics, no motion yet (TODO: add when ready) --------
   {
     id: 'cat-eating-bird',
     title: '吃鸟的猫',
     titleEn: 'Cat Eating a Bird',
     year: null,
     staticSrc: `${ROOT}/吃鸟的猫.webp`,
-    motionSrc: null,
+    motionSrc: `${ROOT}/吃鸟的猫_完整捕食.mp4`,
   },
-  {
-    id: 'woman-with-rooster',
-    title: '女子和公鸡',
-    titleEn: 'Woman with a Rooster',
-    year: null,
-    staticSrc: `${ROOT}/640.webp`,
-    motionSrc: null,
-  },
-  {
-    id: 'doves-in-studio-velazquez',
-    title: '画室里的鸽子（委拉斯开兹）',
-    titleEn: "Doves in the Studio (after Velázquez)",
-    year: null,
-    staticSrc: `${ROOT}/画室里的鸽子（委拉斯开兹）.webp`,
-    motionSrc: null,
-  },
+  // Pending motion (Jessy生成中，到位后加 motionSrc 即可):
+  //   - 女子和公鸡 (Desktop/毕加索画作-动起来/女子和公鸡/)
+  //   - 画室里的鸽子（委拉斯开兹）
 ];
 
 /** URL-encode the trailing filename so Chinese names survive the browser. */

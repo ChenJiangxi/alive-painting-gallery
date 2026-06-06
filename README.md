@@ -1,53 +1,20 @@
 # alive painting gallery
 
-A small one-room exhibition site by Jessy.
+A small one-room exhibition site.
 Lives at **[gallery.jessylab.cc](https://gallery.jessylab.cc)**.
 
-Each painting in a show stands as a still on a warm-white wall.
-Hover one and it begins to breathe — the painting fades into a
-short looping motion. Move away and it returns to rest, and the
-video resets to its first frame so the next visitor starts from
-the painting again.
-
-The first show, **Picasso, Once More Breathing.**, takes a handful
-of Picasso pieces and lets them breathe for a moment.
+You stand in the centre of a rotunda. Eleven Picasso paintings hang
+around you. Hover one — it breathes (silent). Click it — the camera
+steps closer and the sound turns on. ESC backs you out to the centre.
 
 ## Stack
 
-- Vite + React 19 + Tailwind CSS v4
-- Same vite-dev-in-prod pattern as `jessylab.cc` —
-  systemd runs `pnpm dev`, nginx reverse-proxies with Let's Encrypt TLS
+- Vite + React 19 + Tailwind CSS v4 + three.js / @react-three/fiber
+- Same vite-dev-in-prod pattern as `jessylab.cc`: systemd runs `pnpm dev`,
+  nginx reverse-proxies with Let's Encrypt TLS
 - Assets in `public/works/<show-id>/`, referenced from `src/data/works.ts`
 
-## Add a work
-
-1. Drop a static image (and an optional matching motion video) into
-   `public/works/<show-id>/`. Encoding: `.webp` / `.jpeg` for stills,
-   `.mp4` for motion.
-2. Add an entry in `src/data/works.ts`:
-   ```ts
-   {
-     id: 'kebab-slug',
-     title: '中文画名',
-     titleEn: 'English Title',
-     year: 1937,                              // null = unknown
-     staticSrc: `${ROOT}/中文画名.webp`,
-     motionSrcs: [`${ROOT}/动起来.mp4`],       // [] = static only
-     note: '可选的策展说明',
-   }
-   ```
-3. The list reorders itself so motion works appear first. A new entry
-   becomes a `no. NN` station in the museum walk automatically.
-
-If a work has multiple motion takes (e.g. moving-camera vs. fixed),
-split it into two entries — each gets its own hover-alive moment.
-
-## Add a show
-
-The current build is single-show by URL convention. To add a second
-show later, the cleanest move is to wrap `WorksList` in a route and
-add a top-level overview at `/`. The data shape (`works.ts`) already
-keys works by `id` so the partition is cheap.
+---
 
 ## Local dev
 
@@ -56,37 +23,75 @@ pnpm install
 pnpm dev          # http://127.0.0.1:5174
 ```
 
-## Deploy
+## Server
 
-Production runs the dev server behind nginx:
+- Host: `ssh root@8.216.48.63` (Aliyun ECS, Ubuntu 24.04)
+- Repo path: `/home/jessy/alive-painting-gallery` (owned by `jessy`)
+- Service: `systemctl status alive-gallery`
+- Logs:    `journalctl -u alive-gallery -f`
 
-- systemd unit: `/etc/systemd/system/alive-gallery.service`
-  (User=jessy, ExecStart=`pnpm dev --host 127.0.0.1 --port 5175`,
-  Restart=on-failure)
-- nginx site: `/etc/nginx/sites-available/gallery.jessylab.cc`
-  reverse-proxying to `127.0.0.1:5175` with ws upgrade headers
-- TLS via certbot --nginx (auto-renews via `certbot.timer`)
-- DNS: A record `gallery.jessylab.cc → 8.216.48.63` (Namecheap)
+⚠ Aliyun anti-abuse blocks rapid SSH. Bundle commands in a single ssh
+invocation rather than firing many short ones.
 
-Ship a new version:
+## Ship a new version
 
 ```sh
-# locally
+# locally — commit, push
 git push origin main
 
-# on server
-ssh root@8.216.48.63
-cd /home/jessy/alive-painting-gallery
-sudo -u jessy git pull --ff-only
-systemctl restart alive-gallery
+# on the server — pull, restart
+ssh root@8.216.48.63 'cd /home/jessy/alive-painting-gallery \
+  && sudo -u jessy git pull --ff-only \
+  && systemctl restart alive-gallery'
 ```
 
-Restart is needed because vite plugins are loaded once at startup.
-Cold boot is ~5s; nginx keeps serving the old version until the new
-process binds.
+Cold boot ~5s. Nginx keeps serving the old version until the new
+process binds, so visitors don't see a 502.
 
-### Adding a hostname
+---
 
-If you ever change the hostname or add another, update
+## Add a work to the current show
+
+1. Drop a static image (and an optional matching motion video) into
+   `public/works/picasso-in-motion/`. Encoding: `.webp` / `.jpeg` for
+   stills, `.mp4` for motion. Chinese filenames are fine — they're
+   URL-encoded at render time.
+
+2. Add an entry in `src/data/works.ts`:
+   ```ts
+   {
+     id: 'kebab-slug',
+     title: '中文画名',
+     titleEn: 'English Title',
+     year: 1937,                           // null = unknown
+     staticSrc: `${ROOT}/中文画名.webp`,
+     motionSrc: `${ROOT}/动起来.mp4`,       // null = static-only
+   }
+   ```
+3. Push → SSH-restart as above.
+
+> Note: works without `motionSrc` are filtered out of the rotunda today —
+> static-only entries don't render at all. Add the motion file before
+> committing the data entry, or comment the entry until the video is ready.
+
+## Add a new show
+
+Each show lives in its own asset folder `public/works/<show-id>/`. To add
+a second show alongside Picasso, the cleanest move is to:
+
+1. Make `works.ts` export multiple arrays keyed by show id.
+2. Add a tiny route layer (the data shape already keys by `id`, partition
+   is cheap).
+
+Not built today because the current show is single. Cross that bridge
+when the second show is ready.
+
+## Hostname / TLS
+
+- DNS: A record `gallery.jessylab.cc → 8.216.48.63` (Namecheap)
+- Cert: `certbot --nginx` (auto-renews via `certbot.timer`)
+- Nginx site: `/etc/nginx/sites-available/gallery.jessylab.cc`
+
+If you change the hostname or add another, update
 `vite.config.ts` `server.allowedHosts` — without it the dev server
 returns 403 for any host other than localhost.
